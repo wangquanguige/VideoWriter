@@ -14,8 +14,9 @@ extern "C" {
 }
 
 #include "video_writer_core.h"
+#include <opencv2/core/core.hpp>
 
-static size_t buffer_write(void *ptr, size_t, size_t nmemb, MemoryBuffer *buffer) {
+static size_t buffer_write(void *ptr, size_t size, size_t nmemb, MemoryBuffer *buffer) {
     size_t totalSize = size * nmemb;
     if(buffer->size + totalSize > buffer->capacity) {
         size_t new_capacity = buffer->capacity ==0 ? 1 : buffer->capacity * 2;
@@ -33,20 +34,22 @@ static size_t buffer_write(void *ptr, size_t, size_t nmemb, MemoryBuffer *buffer
     memcpy((char *)buffer->buffer + buffer->size, ptr, totalSize);
 
     buffer->size += totalSize;
+    
+    return 0;
 }
 
 int32_t video_writer::encoder_yuv_to_h264(bool flushing) {
     int32_t result = 0;
     std::cout << "Send frame to encoder with pts:" << video_frame->pts << std::endl;
 
-    result = avcodec_send_frame(video_codec_ctx, flushing ? NULL : video_frame);
+    result = avcodec_send_frame(video_codec_ctx, flushing ? nullptr : video_frame);
     if(result < 0) {
         std::cerr << "Error: avcodec_send_frame failed." << std::endl;
         return result;
     }
     while(result >= 0) {
         result = avcodec_receive_packet(video_codec_ctx, video_pkt);
-        if(reslut == AVERROR(EAGAIN) || result == AVERROR_EOF) {
+        if(result == AVERROR(EAGAIN) || result == AVERROR_EOF) {
             return 1;
         }
         else if(result < 0) {
@@ -94,7 +97,7 @@ static void get_adts_header(AVCodecContext* ctx, uint8_t* adts_header, int aac_l
 
 int32_t video_writer::encoder_pcm_to_aac(bool flushing) {
     int32_t result = 0;
-    result = avcodec_send_frame(audio_codec_ctx, flushing ? NULL : audio_frame);
+    result = avcodec_send_frame(audio_codec_ctx, flushing ? nullptr : audio_frame);
     if(result < 0) {
         std::cerr << "Error: avcodec_send_frame failed." << std::endl;
         return result;
@@ -102,7 +105,7 @@ int32_t video_writer::encoder_pcm_to_aac(bool flushing) {
 
     while(result >= 0) {
         result = avcodec_receive_packet(audio_codec_ctx, audio_pkt);
-        if(reslut == AVERROR(EAGAIN) || result == AVERROR_EOF) {
+        if(result == AVERROR(EAGAIN) || result == AVERROR_EOF) {
             return 1;
         }
         else if(result < 0) {
@@ -113,7 +116,7 @@ int32_t video_writer::encoder_pcm_to_aac(bool flushing) {
             std::cout << "Flushing!" << std::endl;
         }
 
-        unit8_t aac_header[7];
+        uint8_t aac_header[7];
         get_adts_header(audio_codec_ctx, aac_header, audio_pkt->size);
 
         buffer_write(aac_header, 1, 7, audio_buffer);
@@ -161,13 +164,15 @@ int32_t video_writer::cvmat_to_avframe(cv::Mat &inMat)
     unsigned char *data = inMat.data;
     memcpy(video_frame->data[0], data, frame_size);
     memcpy(video_frame->data[1], data + frame_size, frame_size / 4);
-    memcpy(vidoe_frame->data[2], data + frame_size * 5 / 4, frame_size / 4);
+    memcpy(video_frame->data[2], data + frame_size * 5 / 4, frame_size / 4);
 
     video_frame->pts = frame_pts++;
 
     encoder_yuv_to_h264(false);
 
     av_frame_unref(video_frame);
+    
+    return 0;
 }
 
 void video_writer::flush() {
@@ -192,7 +197,7 @@ video_writer::video_writer(size_t frame_rate) {
     init_audio_encoder();
 }
 
-video_writer::video_writer(cv:Size image_size) {
+video_writer::video_writer(cv::Size image_size) {
     STREAM_FRAME_RATE = 25;
     frame_size = image_size;
 
@@ -201,8 +206,8 @@ video_writer::video_writer(cv:Size image_size) {
     init_audio_encoder();
 }
 
-video_writer::video_writer(size_t frame_size, cv:Size image_size) {
-    STREAM_FRAME_RATE = frame_size;
+video_writer::video_writer(size_t frame_rate, cv::Size image_size) {
+    STREAM_FRAME_RATE = frame_rate;
     frame_size = image_size;
 
     init();
@@ -212,6 +217,7 @@ video_writer::video_writer(size_t frame_size, cv:Size image_size) {
 
 int32_t video_writer::input_image(cv::Mat png_image) {
     cvmat_to_avframe(png_image);
+    return 0;
 }
 
 int32_t video_writer::input_audio(char *audio_data, size_t size) {
@@ -250,10 +256,10 @@ video_writer::~video_writer() {
     }
 
     if(video_frame) {
-        av_frame_free(video_frame);
+        av_frame_free(&video_frame);
     }
     if(audio_frame) {
-        av_frame_free(audio_frame);
+        av_frame_free(&audio_frame);
     }
 
     if(video_pkt) {
@@ -300,22 +306,26 @@ int32_t video_writer::init() {
     mux_buffer = (MemoryBuffer *)malloc(sizeof(MemoryBuffer));
     audio_buffer_to_encoder = (MemoryBuffer *)malloc(sizeof(MemoryBuffer));
 
-    video_buffer->buffer = NULL;
+    video_buffer->buffer = nullptr;
     video_buffer->size = 0;
     video_buffer->capacity = 0;
-    audio_buffer->buffer = NULL;
+    video_buffer->pos = 0;
+    audio_buffer->buffer = nullptr;
     audio_buffer->size = 0;
     audio_buffer->capacity = 0;
-    mux_buffer->buffer = NULL;
+    audio_buffer->pos = 0;
+    mux_buffer->buffer = nullptr;
     mux_buffer->size = 0;
     mux_buffer->capacity = 0;
-    audio_buffer_to_encoder->buffer = NULL;
+    mux_buffer->pos = 0;
+    audio_buffer_to_encoder->buffer = nullptr;
     audio_buffer_to_encoder->size = 0;
     audio_buffer_to_encoder->capacity = 0;
+    audio_buffer_to_encoder->pos = 0;
 
     video_pkt = av_packet_alloc();
     if(!video_pkt) {
-        std::cerr << "Error: could not allocate video packet." std::endl;
+        std::cerr << "Error: could not allocate video packet." << std::endl;
         return -1;
     }
 
@@ -324,6 +334,7 @@ int32_t video_writer::init() {
         std::cerr << "Error: failed to alloc frame." << std::endl;
         return -1;
     }
+    return 0;
 }
 
 int32_t video_writer::init_video_encoder() {
@@ -349,7 +360,7 @@ int32_t video_writer::init_video_encoder() {
     video_codec_ctx->height = frame_size.height;
     video_codec_ctx->gop_size = 10;         // 关键帧间隔
     video_codec_ctx->time_base = (AVRational){1, STREAM_FRAME_RATE};
-    vidoe_codec_ctx->framerate = (AVRational){STREAM_FRAME_RATE, 1};
+    video_codec_ctx->framerate = (AVRational){STREAM_FRAME_RATE, 1};
     video_codec_ctx->max_b_frames = 3;
     video_codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
 
@@ -358,9 +369,9 @@ int32_t video_writer::init_video_encoder() {
     }
 
     // 初始化codec_ctx
-    int32_t result = avcodec_open2(video_codec_ctx, video_codec, NULL);
+    int32_t result = avcodec_open2(video_codec_ctx, video_codec, nullptr);
     if(result < 0) {
-        std::cerr << "Error: could not open codec." << std::endl;
+        std::cerr << "Error: could not open video codec." << std::endl;
         return -1;
     }
 
@@ -385,9 +396,9 @@ int32_t video_writer::init_audio_encoder() {
     audio_codec_ctx->channel_layout = AV_CH_LAYOUT_STEREO;  // 声道布局为立体声
     audio_codec_ctx->channels = 2;                          // 双声道
 
-    int32_t result = avcodec_open2(audio_codec_ctx, audio_codec, NULL);
+    int32_t result = avcodec_open2(audio_codec_ctx, audio_codec, nullptr);
     if(result < 0) {
-        std::cerr << "Error: could not open codec." << std::endl;
+        std::cerr << "Error: could not open audio codec." << std::endl;
         return -1;
     }
 
@@ -397,7 +408,7 @@ int32_t video_writer::init_audio_encoder() {
         return -1;
     }
 
-    audio_frame->nb_smaples = audio_codec_ctx->frame_size;
+    audio_frame->nb_samples = audio_codec_ctx->frame_size;
     audio_frame->format = audio_codec_ctx->sample_fmt;
     audio_frame->channel_layout = audio_codec_ctx->channel_layout;
     result = av_frame_get_buffer(audio_frame, 0);
@@ -420,9 +431,9 @@ static int video_read_buffer(void *opaque, uint8_t *buf, int buf_size) {
         return -1;
     }
 
-    memcpy(buf, (unit8_t *)video_buffer->buffer + video_buffer->pos, buf_size);
+    memcpy(buf, (uint8_t *)video_buffer->buffer + video_buffer->pos, buf_size);
 
-    if(video_buffer->pos + buf->size >= video_buffer->size) {
+    if(video_buffer->pos + buf_size >= video_buffer->size) {
         int true_size = video_buffer->size - video_buffer->pos;
         video_buffer->pos = video_buffer->size;
         return true_size;
@@ -439,9 +450,9 @@ static int audio_read_buffer(void *opaque, uint8_t *buf, int buf_size) {
         return -1;
     }
 
-    memcpy(buf, (unit8_t *)audio_buffer->buffer + audio_buffer->pos, buf_size);
+    memcpy(buf, (uint8_t *)audio_buffer->buffer + audio_buffer->pos, buf_size);
 
-    if(audio_buffer->pos + buf->size >= audio_buffer->size) {
+    if(audio_buffer->pos + buf_size >= audio_buffer->size) {
         int true_size = audio_buffer->size - audio_buffer->pos;
         audio_buffer->pos = audio_buffer->size;
         return true_size;
@@ -452,14 +463,14 @@ static int audio_read_buffer(void *opaque, uint8_t *buf, int buf_size) {
     }
 }
 
-static int write_buffer(void *opaque, unit8_t *buf, int buf_size) {
+static int write_buffer(void *opaque, uint8_t *buf, int buf_size) {
     MemoryBuffer *mux_buffer = (MemoryBuffer *)opaque;
-    buffer_write(buf, 1, buf_size, mux_buffer);
+    return buffer_write(buf, 1, buf_size, mux_buffer);
 }
 
 int32_t video_writer::init_input_video() {
     int32_t result = 0;
-    AVInputFormat *video_input_format = av_find_input_format("h264");
+    const AVInputFormat *video_input_format = av_find_input_format("h264");
     if(!video_input_format) {
         std::cerr << "Error: failed to find proper AVInputFormat for format h264." << std::endl;
         return -1;
@@ -484,17 +495,17 @@ int32_t video_writer::init_input_video() {
 
 
     video_avio = avio_alloc_context(video_aviobuffer, 32768, 0, video_buffer,
-                                    video_read_buffer, NULL, NULL);
+                                    video_read_buffer, nullptr, nullptr);
     
     video_fmt_ctx->pb = video_avio;
 
-    result = avformat_open_input(&video_fmt_ctx, NULL, video_input_format, NULL);
+    result = avformat_open_input(&video_fmt_ctx, nullptr, video_input_format, nullptr);
     if(result < 0) {
         std::cerr << "Error: video avformat_open_input failed!" << std::endl;
         return -1;
     }
 
-    result = avformat_find_stream_info(video_fmt_ctx, NULL);
+    result = avformat_find_stream_info(video_fmt_ctx, nullptr);
     if(result < 0) {
         std::cerr << "Error: video avformat_find_stream_info failed!" << std::endl;
         return -1;
@@ -505,7 +516,7 @@ int32_t video_writer::init_input_video() {
 
 int32_t video_writer::init_input_audio() {
     int32_t result = 0;
-    AVInputFormat *audio_input_format = av_find_input_format("aac");
+    const AVInputFormat *audio_input_format = av_find_input_format("aac");
     if(!audio_input_format) {
         std::cerr << "Error: failed to find proper AVInputFormat for format aac." << std::endl;
         return -1;
@@ -531,16 +542,16 @@ int32_t video_writer::init_input_audio() {
 
 
     audio_avio = avio_alloc_context(audio_aviobuffer, 32768, 0, audio_buffer,
-                                    audio_read_buffer, NULL, NULL);
+                                    audio_read_buffer, nullptr, nullptr);
     audio_fmt_ctx->pb = audio_avio;
 
-    result = avformat_open_input(&audio_fmt_ctx, NULL, audio_input_format, NULL);
+    result = avformat_open_input(&audio_fmt_ctx, nullptr, audio_input_format, nullptr);
     if(result < 0) {
-        std::cerr << "Error: audio avformat_open_input failed!" << std::endl;
+        std::cerr << result<<"Error: audio avformat_open_input failed!" << std::endl;
         return -1;
     }
 
-    result = avformat_find_stream_info(audio_fmt_ctx, NULL);
+    result = avformat_find_stream_info(audio_fmt_ctx, nullptr);
     if(result < 0) {
         std::cerr << "Error: audio avformat_find_stream_info failed!" << std::endl;
         return -1;
@@ -589,10 +600,10 @@ int32_t video_writer::init_output() {
 
 
 
-    mux_avio = avio_alloc_context(mux_aviobuffer, 32768, 1, mux_buffer, NULL,
-                                  writer_buffer, write_seek);
+    mux_avio = avio_alloc_context(mux_aviobuffer, 32768, 1, mux_buffer, nullptr,
+                                  write_buffer, write_seek);
 
-    avformat_alloc_output_context2(&output_fmt_ctx, NULL, "mp4", NULL);
+    avformat_alloc_output_context2(&output_fmt_ctx, nullptr, "mp4", nullptr);
     if(!output_fmt_ctx) {
         std::cerr << "Error: alloc output format context failed!" << std::endl;
         return -1;
@@ -601,17 +612,17 @@ int32_t video_writer::init_output() {
     output_fmt_ctx->pb = mux_avio;
 
 
-    AVOutputFormat *fmt = output_fmt_ctx->oformat;
+    const AVOutputFormat *fmt = output_fmt_ctx->oformat;
     std::cout << "Default video codec id: " << fmt->video_codec << ", audio codec id: " << fmt->audio_codec << std::endl;
 
-    AVStream *video_stream = avformat_new_stream(output_fmt_ctx, NULL);
+    AVStream *video_stream = avformat_new_stream(output_fmt_ctx, nullptr);
     if(!video_stream) {
         std::cerr << "Error: add video stream to output format context failed!" << std::endl;
         return -1;
     }
 
     out_video_st_idx = video_stream->index;
-    in_video_st_idx = av_find_best_stream(video_fmt_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
+    in_video_st_idx = av_find_best_stream(video_fmt_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
     if(in_video_st_idx < 0) {
         std::cerr << "Error: find video stream in input video file failed!" << std::endl;
         return -1;
@@ -626,20 +637,20 @@ int32_t video_writer::init_output() {
     video_stream->id = output_fmt_ctx->nb_streams - 1;
     video_stream->time_base = (AVRational){1, STREAM_FRAME_RATE};
 
-    AVStream *audio_stream = avformat_new_stream(output_fmt_ctx, NULL);
+    AVStream *audio_stream = avformat_new_stream(output_fmt_ctx, nullptr);
     if(!audio_stream) {
         std::cerr << "Error: add audio stream to output format context failed!" << std::endl;
         return -1;
     }
 
     out_audio_st_idx = audio_stream->index;
-    in_audio_st_idx = av_find_best_stream(audio_fmt_ctx, AVMEDIA_TYPE_AUDIO, -1, -1, NULL, 0);
+    in_audio_st_idx = av_find_best_stream(audio_fmt_ctx, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
     if(in_audio_st_idx < 0) {
         std::cerr << "Error: find audio stream in input audio file failed!" << std::endl;
         return -1;
     }
 
-    result = avcodec_parameters_copy(audio_stream->codecpar, audio_mt_ctx->streams[in_audio_st_idx]->codecpar);
+    result = avcodec_parameters_copy(audio_stream->codecpar, audio_fmt_ctx->streams[in_audio_st_idx]->codecpar);
     if(result < 0) {
         std::cerr << "Error: copy audio codec parameters failed!" << std::endl;
         return -1;
@@ -670,17 +681,17 @@ int32_t video_writer::muxing() {
     int64_t cur_video_pts = 0, cur_audio_pts = 0;
     AVStream *in_video_st = video_fmt_ctx->streams[in_video_st_idx];
     AVStream *in_audio_st = audio_fmt_ctx->streams[in_audio_st_idx];
-    AVStream *output_stream = NULL, *input_stream = NULL;
+    AVStream *output_stream = nullptr, *input_stream = nullptr;
 
     int32_t video_frame_idx = 0;
 
-    result = avformat_write_header(output_fmt_ctx, NULL);
+    result = avformat_write_header(output_fmt_ctx, nullptr);
     if(result < 0) {
         return result;
     }
 
     av_init_packet(&muxer_pkt);
-    muxer_pkt.data = NULL;
+    muxer_pkt.data = nullptr;
     muxer_pkt.size = 0;
 
     std::cout << "Video r_frame_rate: " << in_video_st->r_frame_rate.num << "/" << in_video_st->r_frame_rate.den << std::endl;
@@ -764,31 +775,36 @@ int32_t video_writer::video_mux() {
     if(result < 0) {
         return result;
     }
+    
+    return 1;
 }
 
 int32_t video_writer::write_h264(char *output_file) {
     FILE *outputFile = fopen(output_file, "wb");
     fwrite(video_buffer->buffer, 1, video_buffer->size, outputFile);
-    if(outputFile != NULL) {
+    if(outputFile != nullptr) {
         fclose(outputFile);
-        outputFile = NULL;
+        outputFile = nullptr;
     }
+    return 0;
 }
 
 int32_t video_writer::write_aac(char *output_file) {
     FILE *outputFile = fopen(output_file, "wb");
     fwrite(audio_buffer->buffer, 1, audio_buffer->size, outputFile);
-    if(outputFile != NULL) {
+    if(outputFile != nullptr) {
         fclose(outputFile);
-        outputFile = NULL;
+        outputFile = nullptr;
     }
+    return 0;
 }
 
-int32_t video_writer::write_mp4(char *output_file) {
+int32_t video_writer::write_video(char *output_file) {
     FILE *outputFile = fopen(output_file, "wb");
     fwrite(mux_buffer->buffer, 1, mux_buffer->size, outputFile);
-    if(outputFile != NULL) {
+    if(outputFile != nullptr) {
         fclose(outputFile);
-        outputFile = NULL;
+        outputFile = nullptr;
     }
+    return 0;
 }

@@ -23,20 +23,21 @@ std::string to_string(T value) {
 }
 
 int main(int argc, char **argv) {
-    video_writer writer(25, cv::Size(1920, 1080));
+    video_writer writer(25, cv::Size(1280, 720));
+    //video_writer writer(25, cv::Size(854, 480));
 
     char png_file_dir[] = "../test";
     std::vector<std::string>png_files;
     std::string file_path(png_file_dir);
 
     DIR *dir = opendir(png_file_dir);
-    if(dir == NULL) {
+    if(dir == nullptr) {
         std::cerr << "Error: could not open input file dir " << png_file_dir << std::endl;
         return 0;
     }
 
     struct dirent *entry;
-    while((entry = readdir(dir)) != NULL) {
+    while((entry = readdir(dir)) != nullptr) {
         if(fnmatch("*.png", entry->d_name, 0) == 0) {
             png_files.push_back(file_path + "/" + entry->d_name);
         }
@@ -50,6 +51,7 @@ int main(int argc, char **argv) {
     clock_t image_start = 0, image_end = 0;
 
     for(int i = 0; i < png_files.size(); i++) {
+    //for(int i = 0; i < 10; i++) {
         cv::Mat image = cv::imread(png_files[i]);
 
         image_start = clock();
@@ -61,8 +63,8 @@ int main(int argc, char **argv) {
     // 刷新编码器，表示Mat输入流结束
     writer.flush();
 
-    File *file = open("../test.pcm", "rb");
-    if(file == NULL) {
+    FILE *file = fopen("../test.pcm", "rb");
+    if(file == nullptr) {
         std::cerr << "Error: could not open input pcm file: test.pcm." << std::endl;
         return 0;
     }
@@ -76,7 +78,7 @@ int main(int argc, char **argv) {
     int64_t chunk_size = file_size / 10;
     // 分配内存
     char *buffer = (char *)malloc(chunk_size);
-    if(buffer == NULL) {
+    if(buffer == nullptr) {
         std::cerr << "Error: could not alloc pcm buffer." << std::endl;
         fclose(file);
         return 0;
